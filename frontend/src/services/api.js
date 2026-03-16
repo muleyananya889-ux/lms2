@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// Use proxy configuration - React will proxy /api requests to localhost:5000
-const API_BASE_URL = '/api';
+// Use environment-specific API URL
+const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -20,15 +20,42 @@ api.interceptors.request.use(
     }
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor to handle errors
+// Response interceptor to handle errors and fallback to mock data
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Fallback to mock data if backend is not available
+    if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK' || !error.response) {
+      console.log('Backend not available, using mock data');
+
+      // Return mock data for different endpoints
+      if (error.config.url.includes('/courses')) {
+        if (error.config.method === 'get' && !error.config.url.includes('/courses/')) {
+          return Promise.resolve({ data: { courses: window.mockCourses || [] } });
+        }
+        if (error.config.method === 'get' && error.config.url.match(/\/courses\/\d+/)) {
+          const id = error.config.url.split('/').pop();
+          const course = (window.mockCourses || []).find(c => c.id === parseInt(id));
+          return Promise.resolve({ data: { course } });
+        }
+      }
+
+      if (error.config.url.includes('/auth/login')) {
+        return window.mockAPI.auth.login(error.config.data);
+      }
+
+      if (error.config.url.includes('/auth/signup')) {
+        return window.mockAPI.auth.signup(error.config.data);
+      }
+
+      if (error.config.url.includes('/auth/me')) {
+        return window.mockAPI.auth.getCurrentUser();
+      }
+    }
+
     if (error.response?.status === 401) {
       // Token expired or invalid
       localStorage.removeItem('access_token');
